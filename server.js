@@ -1,100 +1,24 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = "0.0.0.0";
-const PUBLIC_DIRECTORY = __dirname;
-
-const MIME_TYPES = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".ico": "image/x-icon",
-  ".txt": "text/plain; charset=utf-8",
-};
-
-function sendResponse(response, statusCode, contentType, body) {
-  response.writeHead(statusCode, {
-    "Content-Type": contentType,
-    "Cache-Control": "no-cache",
-  });
-  response.end(body);
-}
-
-function getSafeFilePath(requestUrl) {
-  const url = new URL(requestUrl, `http://${HOST}:${PORT}`);
-  const requestedPath = decodeURIComponent(url.pathname);
-  const normalizedPath = path.normalize(requestedPath).replace(/^(\.\.[/\\])+/, "");
-  const relativePath =
-    normalizedPath === "/" || normalizedPath === "."
-      ? "index.html"
-      : normalizedPath.replace(/^[/\\]+/, "");
-
-  const filePath = path.resolve(PUBLIC_DIRECTORY, relativePath);
-  const relativeToPublic = path.relative(PUBLIC_DIRECTORY, filePath);
-
-  if (
-    relativeToPublic.startsWith("..") ||
-    path.isAbsolute(relativeToPublic) ||
-    relativePath.startsWith(".")
-  ) {
-    return null;
-  }
-
-  return filePath;
-}
-
-const server = http.createServer((request, response) => {
-  const filePath = getSafeFilePath(request.url);
-
-  if (!filePath) {
-    sendResponse(response, 403, "text/plain; charset=utf-8", "403 Forbidden");
-    return;
-  }
-
-  fs.stat(filePath, (statError, stats) => {
-    if (statError || !stats.isFile()) {
-      sendResponse(
-        response,
-        404,
-        "text/plain; charset=utf-8",
-        "404 Not Found"
-      );
-      return;
-    }
-
-    const extension = path.extname(filePath).toLowerCase();
-    const contentType =
-      MIME_TYPES[extension] || "application/octet-stream";
-
-    fs.readFile(filePath, (readError, content) => {
-      if (readError) {
-        sendResponse(
-          response,
-          500,
-          "text/plain; charset=utf-8",
-          "500 Internal Server Error"
-        );
-        return;
-      }
-
-      sendResponse(response, 200, contentType, content);
+"use strict";
+const http = require("node:http");
+const fs = require("node:fs");
+const path = require("node:path");
+// 프로젝트 루트를 통째로 공개하지 않고 실제 웹 자산만 제공합니다.
+const PUBLIC_FILES = new Map([["/", "index.html"], ["/index.html", "index.html"], ["/styles.css", "styles.css"], ["/app.js", "app.js"]]);
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" };
+function createServer() {
+  return http.createServer((request, response) => {
+    const send = (status, type, body) => { response.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'; form-action 'none'" }); response.end(request.method === "HEAD" ? undefined : body); };
+    if (!["GET", "HEAD"].includes(request.method)) { send(405, "text/plain", "Method Not Allowed"); return; }
+    let pathname;
+    try { pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname); }
+    catch { send(400, "text/plain", "Bad Request"); return; }
+    const file = PUBLIC_FILES.get(pathname);
+    if (!file) { send(404, "text/plain", "Not Found"); return; }
+    fs.readFile(path.join(__dirname, file), (error, content) => {
+      if (error) send(500, "text/plain", "Internal Server Error");
+      else send(200, TYPES[path.extname(file)], content);
     });
   });
-});
-
-server.listen(PORT, HOST, () => {
-  console.log("");
-  console.log("==============================================");
-  console.log(" AI.SW 부천연합해커톤 프로젝트 서버");
-  console.log(` http://localhost:${PORT}`);
-  console.log("==============================================");
-  console.log("");
-});
+}
+if (require.main === module) { const port = Number(process.env.PORT) || 3000; createServer().listen(port, "0.0.0.0", () => console.log(`ALETHEIA: http://localhost:${port}`)); }
+module.exports = { createServer };
